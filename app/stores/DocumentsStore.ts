@@ -9,11 +9,7 @@ import {
   runInAction,
 } from "mobx";
 import type { DirectionFilter, SortFilter } from "@shared/types";
-import {
-  AttachmentPreset,
-  SubscriptionType,
-  type DateFilter,
-} from "@shared/types";
+import { SubscriptionType, type DateFilter } from "@shared/types";
 import type { Filter } from "@shared/helpers/FilterHelper";
 import { subtractDate } from "@shared/utils/date";
 import { bytesToHumanReadable } from "@shared/utils/files";
@@ -29,7 +25,7 @@ import type {
   SearchResult,
 } from "~/types";
 import { client } from "~/utils/ApiClient";
-import { extname, uploadFile } from "~/utils/files";
+import { extname } from "~/utils/files";
 
 type FetchPageParams = PaginationParams & {
   template?: boolean;
@@ -602,23 +598,24 @@ export default class DocumentsStore extends Store<Document> {
       );
     }
 
-    const attachment = await uploadFile(file, {
-      name: file.name,
-      preset: AttachmentPreset.Import,
-    });
+    // Send the file directly as multipart form data. Uploading it first as an
+    // `Import` attachment would require team-admin rights (createImport), which
+    // members who can create documents in the collection do not have.
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    if (parentDocumentId) {
+      formData.append("parentDocumentId", parentDocumentId);
+    }
+    if (collectionId) {
+      formData.append("collectionId", collectionId);
+    }
+    if (options.publish !== undefined) {
+      formData.append("publish", String(options.publish));
+    }
 
-    const res = await client.post(
-      "/documents.import",
-      {
-        attachmentId: attachment.id,
-        parentDocumentId,
-        collectionId,
-        publish: options.publish,
-      },
-      {
-        retry: false,
-      }
-    );
+    const res = await client.post("/documents.import", formData, {
+      retry: false,
+    });
     invariant(res?.data, "Data should be available");
     this.addPolicies(res.policies);
     return this.add(res.data);
